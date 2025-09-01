@@ -552,6 +552,7 @@ class EC2CrossAccountManager:
             raise
 
 
+def main():
     """Main function to demonstrate EC2 cross-account listing"""
     try:
         # Initialize the manager
