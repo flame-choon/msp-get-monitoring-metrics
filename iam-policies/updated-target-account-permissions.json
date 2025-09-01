@@ -31,6 +31,15 @@
                 "cloudwatch:ListMetrics"
             ],
             "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "rds:DescribeDBInstances",
+                "rds:DescribeDBClusters",
+                "rds:ListTagsForResource"
+            ],
+            "Resource": "*"
         }
     ]
 }

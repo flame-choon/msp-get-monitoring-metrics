@@ -8,6 +8,7 @@ from docx import Document
 from docx.shared import Inches
 import tempfile
 import os
+from rds_cross_account import RDSCrossAccountManager
 
 # Configure logging
 logging.basicConfig(
@@ -580,12 +581,18 @@ def main():
         ec2_s3_key = ec2_manager.generate_and_upload_report()
         print(f"EC2 Report uploaded to: s3://{settings.s3_bucket_name}/{ec2_s3_key}")
         
-        # Generate and upload ELB report
-        print(f"\n=== Generating and uploading ELB Word report ===")
-        elb_s3_key = ec2_manager.generate_and_upload_elb_report()
-        print(f"ELB Report uploaded to: s3://{settings.s3_bucket_name}/{elb_s3_key}")
+        # Generate and upload RDS report
+        print(f"\n=== Generating and uploading RDS Word report ===")
+        rds_manager = RDSCrossAccountManager()
+        rds_s3_key = rds_manager.generate_and_upload_rds_report()
+        print(f"RDS report uploaded to: s3://{settings.s3_bucket_name}/{rds_s3_key}")
         
-        # List ELB information
+        # List RDS information
+        print(f"\n=== RDS Summary ===")
+        instances = rds_manager.list_rds_instances()
+        clusters = rds_manager.list_rds_clusters()
+        print(f"Total RDS Instances: {len(instances)}")
+        print(f"Total RDS Clusters: {len(clusters)}")
         print(f"\n=== Load Balancers Summary ===")
         load_balancers = ec2_manager.list_load_balancers()
         print(f"Total Load Balancers: {len(load_balancers)}")
