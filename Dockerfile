@@ -1,5 +1,6 @@
 # Multi-stage build for smaller final image
-FROM python:3.11-slim as builder
+# Support multi-platform builds
+FROM --platform=$BUILDPLATFORM python:3.11-slim as builder
 
 # Set working directory
 WORKDIR /app
@@ -16,7 +17,7 @@ COPY requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 # Final stage
-FROM python:3.11-slim
+FROM --platform=$TARGETPLATFORM python:3.11-slim
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser
