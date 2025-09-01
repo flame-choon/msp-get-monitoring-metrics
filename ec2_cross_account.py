@@ -3,6 +3,11 @@ import logging
 from typing import List, Dict, Any
 from botocore.exceptions import ClientError, BotoCoreError
 from config import settings
+from datetime import datetime
+from docx import Document
+from docx.shared import Inches
+import tempfile
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -167,6 +172,138 @@ class EC2CrossAccountManager:
         
         logger.info(f"Found {len(running_instances)} running instances")
         return running_instances
+    
+    def generate_word_report(self, instances: List[Dict[str, Any]]) -> str:
+        """
+        Generate Word document report with EC2 instances data
+        
+        Args:
+            instances: List of EC2 instance information
+            
+        Returns:
+            Path to generated Word document
+        """
+        try:
+            # Create new document
+            doc = Document()
+            
+            # Add title
+            title = doc.add_heading('EC2 Instances Report', 0)
+            
+            # Add metadata
+            doc.add_paragraph(f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+            doc.add_paragraph(f'Target Account: {self.target_account_id}')
+            doc.add_paragraph(f'Total Instances: {len(instances)}')
+            doc.add_paragraph('')
+            
+            if not instances:
+                doc.add_paragraph('No EC2 instances found.')
+            else:
+                # Add table
+                table = doc.add_table(rows=1, cols=8)
+                table.style = 'Table Grid'
+                
+                # Header row
+                headers = ['Instance ID', 'Type', 'State', 'Name', 'Private IP', 'Public IP', 'VPC ID', 'AZ']
+                header_cells = table.rows[0].cells
+                for i, header in enumerate(headers):
+                    header_cells[i].text = header
+                
+                # Data rows
+                for instance in instances:
+                    row_cells = table.add_row().cells
+                    row_cells[0].text = instance.get('InstanceId', '')
+                    row_cells[1].text = instance.get('InstanceType', '')
+                    row_cells[2].text = instance.get('State', '')
+                    row_cells[3].text = instance.get('Tags', {}).get('Name', '')
+                    row_cells[4].text = instance.get('PrivateIpAddress', '')
+                    row_cells[5].text = instance.get('PublicIpAddress', '')
+                    row_cells[6].text = instance.get('VpcId', '')
+                    row_cells[7].text = instance.get('AvailabilityZone', '')
+            
+            # Generate filename with current timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            filename = f"{timestamp}.docx"
+            
+            # Create temporary file
+            temp_dir = tempfile.mkdtemp()
+            file_path = os.path.join(temp_dir, filename)
+            
+            # Save document
+            doc.save(file_path)
+            logger.info(f"Word report generated: {file_path}")
+            
+            return file_path
+            
+        except Exception as e:
+            logger.error(f"Failed to generate Word report: {str(e)}")
+            raise
+    
+    def upload_to_s3(self, file_path: str) -> str:
+        """
+        Upload file to S3 bucket
+        
+        Args:
+            file_path: Path to local file to upload
+            
+        Returns:
+            S3 object key (path)
+        """
+        try:
+            # Create S3 client using instance profile credentials
+            s3_client = boto3.client('s3', region_name=self.region)
+            
+            # Extract filename from path
+            filename = os.path.basename(file_path)
+            
+            # Construct S3 key
+            s3_key = f"{settings.s3_report_folder}/{filename}"
+            
+            logger.info(f"Uploading file to s3://{settings.s3_bucket_name}/{s3_key}")
+            
+            # Upload file
+            s3_client.upload_file(
+                file_path,
+                settings.s3_bucket_name,
+                s3_key
+            )
+            
+            logger.info(f"Successfully uploaded file to S3: {s3_key}")
+            return s3_key
+            
+        except Exception as e:
+            logger.error(f"Failed to upload file to S3: {str(e)}")
+            raise
+    
+    def generate_and_upload_report(self) -> str:
+        """
+        Generate Word report and upload to S3
+        
+        Returns:
+            S3 object key of uploaded file
+        """
+        try:
+            # Get EC2 instances
+            instances = self.list_ec2_instances()
+            
+            # Generate Word report
+            file_path = self.generate_word_report(instances)
+            
+            # Upload to S3
+            s3_key = self.upload_to_s3(file_path)
+            
+            # Clean up temporary file
+            try:
+                os.remove(file_path)
+                os.rmdir(os.path.dirname(file_path))
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to clean up temporary file: {cleanup_error}")
+            
+            return s3_key
+            
+        except Exception as e:
+            logger.error(f"Failed to generate and upload report: {str(e)}")
+            raise
 
 
 def main():
@@ -191,6 +328,11 @@ def main():
         print(f"\n=== Running instances only ===")
         running_instances = ec2_manager.get_running_instances()
         print(f"Total running instances: {len(running_instances)}")
+        
+        # Generate and upload report
+        print(f"\n=== Generating and uploading Word report ===")
+        s3_key = ec2_manager.generate_and_upload_report()
+        print(f"Report uploaded to: s3://{settings.s3_bucket_name}/{s3_key}")
         
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")

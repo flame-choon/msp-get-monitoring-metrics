@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
     
+    # S3 Configuration
+    s3_bucket_name: str = "starbucks-bucket"
+    s3_report_folder: str = "metric-report"
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
