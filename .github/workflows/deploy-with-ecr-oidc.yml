@@ -70,7 +70,6 @@ jobs:
         
         # docker-compose.yml 파일 업데이트 및 전송
         cat > docker-compose.prod.yml << EOF
-        version: '3.8'
         
         services:
           ec2-monitor:
