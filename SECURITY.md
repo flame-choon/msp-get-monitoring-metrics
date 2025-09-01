@@ -10,7 +10,6 @@
 cp .env.example .env
 # .env 파일 편집하여 실제 값 입력
 ```
-
 ### 2. GitHub Secrets 설정
 
 GitHub Repository Settings > Secrets and variables > Actions에서 다음 Secrets를 추가하세요:
