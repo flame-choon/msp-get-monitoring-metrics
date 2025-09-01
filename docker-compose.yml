@@ -20,6 +20,6 @@ services:
       
       # Mount logs directory
       - ./logs:/app/logs
-    restart: unless-stopped
+    restart: "no"
     # For running on EC2 with IAM role
     network_mode: host
