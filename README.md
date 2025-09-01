@@ -249,7 +249,7 @@ IAM Role 기반으로 안전하게 ECR에 푸시:
    ```
 
 2. 출력된 Role ARN을 GitHub Secrets에 추가:
-   - `AWS_ROLE_TO_ASSUME`: arn:aws:iam::144149479695:role/GitHubActionsECRRole
+   - `AWS_ROLE_TO_ASSUME`: arn:aws:iam::YOUR_ACCOUNT_ID:role/YOUR_GITHUB_ACTIONS_ROLE
 
 3. EC2 인스턴스에 ECR 접근 권한 부여:
    ```bash

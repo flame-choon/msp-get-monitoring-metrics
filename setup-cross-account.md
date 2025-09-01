@@ -20,7 +20,7 @@ vi .env
 다음과 같이 실제 값으로 수정:
 ```env
 # Source account (현재 EC2가 실행중인 계정)
-SOURCE_ACCOUNT_ID=144149479695
+SOURCE_ACCOUNT_ID=YOUR_SOURCE_ACCOUNT_ID
 
 # Target account (모니터링하려는 대상 계정)
 TARGET_ACCOUNT_ID=실제_대상_계정_ID
@@ -49,7 +49,7 @@ LOG_LEVEL=INFO
     {
       "Effect": "Allow",
       "Principal": {
-        "AWS": "arn:aws:iam::144149479695:role/Starbucks-Monitoring-Metrcis"
+        "AWS": "arn:aws:iam::YOUR_SOURCE_ACCOUNT_ID:role/YOUR_EC2_ROLE_NAME"
       },
       "Action": "sts:AssumeRole"
     }
@@ -79,11 +79,11 @@ docker-compose -f docker-compose.prod.yml logs -f
 
 ## 예시 설정
 
-만약 대상 계정 ID가 `867099995276`이고, 역할 이름이 `CrossAccountEC2Reader`라면:
+예시 - 대상 계정 ID가 `123456789012`이고, 역할 이름이 `CrossAccountEC2Reader`라면:
 
 ```env
-SOURCE_ACCOUNT_ID=144149479695
-TARGET_ACCOUNT_ID=867099995276
+SOURCE_ACCOUNT_ID=YOUR_SOURCE_ACCOUNT_ID
+TARGET_ACCOUNT_ID=YOUR_TARGET_ACCOUNT_ID
 ASSUME_ROLE_NAME=CrossAccountEC2Reader
 SESSION_NAME=EC2ListingSession
 AWS_REGION=ap-northeast-2
@@ -92,8 +92,8 @@ LOG_LEVEL=INFO
 
 ## 권한 체크리스트
 
-✅ Source Account (144149479695):
-- EC2 인스턴스 Role: `Starbucks-Monitoring-Metrcis`
+✅ Source Account:
+- EC2 인스턴스 Role: 소스 계정의 EC2 인스턴스에 할당된 IAM Role
 - 필요 권한: `sts:AssumeRole`
 
 ✅ Target Account:

@@ -11,6 +11,11 @@ ENV/
 
 # Environment variables
 .env
+.env.local
+.env.*.local
+# Keep example files but never commit actual values
+!.env.example
+!.env.local.example
 
 # IDE
 .vscode/
