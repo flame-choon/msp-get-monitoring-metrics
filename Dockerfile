@@ -1,5 +1,5 @@
 # Single stage build for ARM64 compatibility
-FROM --platform=$TARGETPLATFORM python:3.11-slim
+FROM --platform=$TARGETPLATFORM python:3.12-slim
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser

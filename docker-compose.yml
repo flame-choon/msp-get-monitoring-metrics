@@ -6,11 +6,6 @@ services:
     image: msp-ec2-monitor:latest
     container_name: ec2-cross-account-monitor
     environment:
-      # AWS credentials will be provided by IAM role when running on EC2
-      # For local testing, you can uncomment and set these:
-      # AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      # AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      # AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
       
       # Application configuration
       SOURCE_ACCOUNT_ID: ${SOURCE_ACCOUNT_ID}
