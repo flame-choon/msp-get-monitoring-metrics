@@ -173,6 +173,20 @@ class EC2CrossAccountManager:
         logger.info(f"Found {len(running_instances)} running instances")
         return running_instances
     
+    def _safe_str(self, value: Any) -> str:
+        """
+        Safely convert any value to string, handling None values
+        
+        Args:
+            value: Any value that needs to be converted to string
+            
+        Returns:
+            String representation of the value, or empty string if None
+        """
+        if value is None:
+            return ''
+        return str(value)
+    
     def generate_word_report(self, instances: List[Dict[str, Any]]) -> str:
         """
         Generate Word document report with EC2 instances data
@@ -212,14 +226,15 @@ class EC2CrossAccountManager:
                 # Data rows
                 for instance in instances:
                     row_cells = table.add_row().cells
-                    row_cells[0].text = instance.get('InstanceId', '')
-                    row_cells[1].text = instance.get('InstanceType', '')
-                    row_cells[2].text = instance.get('State', '')
-                    row_cells[3].text = instance.get('Tags', {}).get('Name', '')
-                    row_cells[4].text = instance.get('PrivateIpAddress', '')
-                    row_cells[5].text = instance.get('PublicIpAddress', '')
-                    row_cells[6].text = instance.get('VpcId', '')
-                    row_cells[7].text = instance.get('AvailabilityZone', '')
+                    # Safely convert all values to strings, handling None values
+                    row_cells[0].text = self._safe_str(instance.get('InstanceId'))
+                    row_cells[1].text = self._safe_str(instance.get('InstanceType'))
+                    row_cells[2].text = self._safe_str(instance.get('State'))
+                    row_cells[3].text = self._safe_str(instance.get('Tags', {}).get('Name'))
+                    row_cells[4].text = self._safe_str(instance.get('PrivateIpAddress'))
+                    row_cells[5].text = self._safe_str(instance.get('PublicIpAddress'))
+                    row_cells[6].text = self._safe_str(instance.get('VpcId'))
+                    row_cells[7].text = self._safe_str(instance.get('AvailabilityZone'))
             
             # Generate filename with current timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M")
