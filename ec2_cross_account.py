@@ -42,7 +42,8 @@ class EC2CrossAccountManager:
             response = sts_client.assume_role(
                 RoleArn=role_arn,
                 RoleSessionName=self.session_name,
-                DurationSeconds=3600  # 1 hour
+                DurationSeconds=3600,  # 1 hour
+                ExternalId='starbucks-monitoring-secret-key-prod'  # Uncomment if using ExternalId
             )
             
             logger.info("Successfully assumed role in target account")
