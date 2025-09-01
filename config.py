@@ -5,11 +5,11 @@ import os
 
 class Settings(BaseSettings):
     # AWS Account IDs - MUST be set via environment variables
-    source_account_id: str = os.getenv("SOURCE_ACCOUNT_ID", "")
-    target_account_id: str = os.getenv("TARGET_ACCOUNT_ID", "")
+    source_account_id: str = "144149479695"  # Default source account
+    target_account_id: str = "807267097589"  # MUST be overridden
     
     # IAM Role configuration
-    assume_role_name: str = os.getenv("ASSUME_ROLE_NAME", "CrossAccountRole")
+    assume_role_name: str = "Starbucks-Monitoring-Metrcis"  # MUST be overridden
     session_name: str = "EC2ListingSession"
     
     # AWS Region
