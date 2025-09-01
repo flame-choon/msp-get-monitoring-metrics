@@ -81,6 +81,7 @@ docker-compose -f docker-compose.prod.yml logs -f
 
 예시 - 대상 계정 ID가 `123456789012`이고, 역할 이름이 `CrossAccountEC2Reader`라면:
 
+
 ```env
 SOURCE_ACCOUNT_ID=YOUR_SOURCE_ACCOUNT_ID
 TARGET_ACCOUNT_ID=YOUR_TARGET_ACCOUNT_ID
