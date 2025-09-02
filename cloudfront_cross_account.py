@@ -3,11 +3,16 @@ import logging
 from typing import List, Dict, Any
 from botocore.exceptions import ClientError, BotoCoreError
 from config import settings
-from datetime import datetime
+from datetime import datetime, timedelta
 from docx import Document
 from docx.shared import Inches
 import tempfile
 import os
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(
@@ -76,6 +81,25 @@ class CloudFrontCrossAccountManager:
         # CloudFront is a global service, so we use us-east-1
         return boto3.client(
             'cloudfront',
+            region_name='us-east-1',
+            aws_access_key_id=credentials['AccessKeyId'],
+            aws_secret_access_key=credentials['SecretAccessKey'],
+            aws_session_token=credentials['SessionToken']
+        )
+    
+    def create_cloudwatch_client(self, credentials: Dict[str, Any]):
+        """
+        Create CloudWatch client with assumed role credentials
+        
+        Args:
+            credentials: Temporary credentials from assume_role
+            
+        Returns:
+            CloudWatch client object
+        """
+        # CloudWatch for CloudFront metrics is in us-east-1
+        return boto3.client(
+            'cloudwatch',
             region_name='us-east-1',
             aws_access_key_id=credentials['AccessKeyId'],
             aws_secret_access_key=credentials['SecretAccessKey'],
@@ -197,6 +221,133 @@ class CloudFrontCrossAccountManager:
             logger.error(f"Failed to list CloudFront OAIs: {str(e)}")
             raise
     
+    def get_cloudfront_metrics(self, distribution_id: str, metric_name: str, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
+        """
+        Get CloudFront distribution metrics from CloudWatch
+        
+        Args:
+            distribution_id: CloudFront distribution ID
+            metric_name: Name of the metric (Requests or BytesDownloaded)
+            start_time: Start time for metrics
+            end_time: End time for metrics
+            
+        Returns:
+            List of metric data points
+        """
+        try:
+            # Assume role in target account
+            credentials = self.assume_role()
+            
+            # Create CloudWatch client with assumed credentials
+            cw_client = self.create_cloudwatch_client(credentials)
+            
+            logger.info(f"Retrieving {metric_name} metrics for distribution {distribution_id}")
+            
+            # Get metric statistics
+            response = cw_client.get_metric_statistics(
+                Namespace='AWS/CloudFront',
+                MetricName=metric_name,
+                Dimensions=[
+                    {
+                        'Name': 'DistributionId',
+                        'Value': distribution_id
+                    },
+                    {
+                        'Name': 'Region',
+                        'Value': 'Global'
+                    }
+                ],
+                StartTime=start_time,
+                EndTime=end_time,
+                Period=3600,  # 1 hour
+                Statistics=['Sum']
+            )
+            
+            # Sort data points by timestamp
+            datapoints = sorted(response['Datapoints'], key=lambda x: x['Timestamp'])
+            
+            logger.info(f"Retrieved {len(datapoints)} data points for {metric_name}")
+            return datapoints
+            
+        except Exception as e:
+            logger.error(f"Failed to get CloudFront metrics: {str(e)}")
+            return []
+    
+    def generate_metric_graph(self, distribution_id: str, metric_name: str, datapoints: List[Dict[str, Any]], unit: str = '') -> BytesIO:
+        """
+        Generate a graph for CloudFront metrics
+        
+        Args:
+            distribution_id: CloudFront distribution ID
+            metric_name: Name of the metric
+            datapoints: List of metric data points
+            unit: Unit for the metric (e.g., 'Bytes', 'Count')
+            
+        Returns:
+            BytesIO object containing the graph image
+        """
+        try:
+            # Create figure and axis
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            if datapoints:
+                # Extract timestamps and values
+                timestamps = [point['Timestamp'] for point in datapoints]
+                values = [point['Sum'] for point in datapoints]
+                
+                # Plot the data
+                ax.plot(timestamps, values, marker='o', linestyle='-', linewidth=2, markersize=4)
+                
+                # Format the x-axis
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+                ax.xaxis.set_major_locator(mdates.HourLocator(interval=24))
+                plt.xticks(rotation=45, ha='right')
+                
+                # Add grid
+                ax.grid(True, alpha=0.3)
+                
+                # Set labels and title
+                ax.set_xlabel('Date/Time', fontsize=10)
+                ylabel = f'{metric_name}'
+                if unit:
+                    ylabel += f' ({unit})'
+                ax.set_ylabel(ylabel, fontsize=10)
+                ax.set_title(f'{metric_name} - Distribution: {distribution_id}', fontsize=12, fontweight='bold')
+                
+                # Format y-axis values
+                if metric_name == 'BytesDownloaded':
+                    # Convert to human-readable format (GB)
+                    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1e9:.2f} GB'))
+                elif metric_name == 'Requests':
+                    # Format as thousands
+                    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.0f}K' if x >= 1000 else f'{x:.0f}'))
+            else:
+                # No data available
+                ax.text(0.5, 0.5, 'No data available', 
+                       horizontalalignment='center',
+                       verticalalignment='center',
+                       transform=ax.transAxes,
+                       fontsize=14)
+                ax.set_title(f'{metric_name} - Distribution: {distribution_id} (No Data)', fontsize=12, fontweight='bold')
+            
+            # Adjust layout
+            plt.tight_layout()
+            
+            # Save to BytesIO
+            img_buffer = BytesIO()
+            plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
+            img_buffer.seek(0)
+            
+            # Clean up
+            plt.close(fig)
+            
+            return img_buffer
+            
+        except Exception as e:
+            logger.error(f"Failed to generate metric graph: {str(e)}")
+            # Return empty buffer on error
+            return BytesIO()
+    
     def _parse_tags(self, tags: List[Dict[str, str]]) -> Dict[str, str]:
         """
         Parse CloudFront tags into a dictionary
@@ -229,7 +380,7 @@ class CloudFrontCrossAccountManager:
     
     def generate_cloudfront_word_report(self, distributions: List[Dict[str, Any]], oais: List[Dict[str, Any]]) -> str:
         """
-        Generate Word document report with CloudFront data
+        Generate Word document report with CloudFront data and CloudWatch metrics graphs
         
         Args:
             distributions: List of CloudFront distribution information
@@ -252,81 +403,77 @@ class CloudFrontCrossAccountManager:
             doc.add_paragraph(f'Total Origin Access Identities: {len(oais)}')
             doc.add_paragraph('')
             
-            # CloudFront Distributions section
-            doc.add_heading('CloudFront Distributions', 1)
+            # Define metric collection period (August 2025)
+            start_time = datetime(2025, 8, 1, 0, 0, 0)
+            end_time = datetime(2025, 8, 31, 23, 59, 59)
+            
+            # CloudFront Distributions with Metrics section
+            doc.add_heading('CloudFront Distributions with Metrics', 1)
             if not distributions:
                 doc.add_paragraph('No CloudFront distributions found.')
             else:
-                # Add table for distributions
-                table = doc.add_table(rows=1, cols=8)
-                table.style = 'Table Grid'
-                
-                # Header row
-                headers = ['Distribution ID', 'Domain Name', 'Status', 'Enabled', 'Price Class', 'Origins Count', 'Comment', 'Name Tag']
-                header_cells = table.rows[0].cells
-                for i, header in enumerate(headers):
-                    header_cells[i].text = header
-                
-                # Data rows
                 for dist in distributions:
-                    row_cells = table.add_row().cells
-                    row_cells[0].text = self._safe_str(dist.get('Id'))
-                    row_cells[1].text = self._safe_str(dist.get('DomainName'))
-                    row_cells[2].text = self._safe_str(dist.get('Status'))
-                    row_cells[3].text = self._safe_str(dist.get('Enabled'))
-                    row_cells[4].text = self._safe_str(dist.get('PriceClass'))
-                    row_cells[5].text = str(len(dist.get('Origins', [])))
-                    row_cells[6].text = self._safe_str(dist.get('Comment'))[:50]  # Truncate long comments
-                    row_cells[7].text = self._safe_str(dist.get('Tags', {}).get('Name'))
-            
-            doc.add_paragraph('')
-            
-            # Distribution Details section
-            if distributions:
-                doc.add_heading('Distribution Details', 1)
-                for dist in distributions:
-                    doc.add_heading(f"Distribution: {dist.get('Id')}", 2)
+                    # Add distribution ID as heading
+                    distribution_id = dist.get('Id')
+                    doc.add_heading(f'{distribution_id}', 2)
                     
-                    # Basic info
+                    # Add basic distribution info
                     doc.add_paragraph(f"Domain Name: {dist.get('DomainName')}")
                     doc.add_paragraph(f"Status: {dist.get('Status')}")
                     doc.add_paragraph(f"Enabled: {self._safe_str(dist.get('Enabled'))}")
-                    doc.add_paragraph(f"Price Class: {dist.get('PriceClass')}")
                     
-                    # Aliases
+                    # Add Aliases if present
                     if dist.get('Aliases'):
                         doc.add_paragraph(f"Aliases: {', '.join(dist.get('Aliases'))}")
                     
-                    # Origins
+                    # Add Origins info
                     origins = dist.get('Origins', [])
                     if origins:
-                        doc.add_paragraph("Origins:")
+                        doc.add_paragraph(f"Origins Count: {len(origins)}")
                         for origin in origins:
                             doc.add_paragraph(f"  - {origin.get('Id')}: {origin.get('DomainName')} ({origin.get('Type', 'Unknown')})", style='List Bullet')
                     
                     doc.add_paragraph('')
+                    
+                    # Get and add Requests metric graph
+                    doc.add_paragraph('Requests Metric (August 2025):', style='Heading 3')
+                    requests_data = self.get_cloudfront_metrics(distribution_id, 'Requests', start_time, end_time)
+                    if requests_data or True:  # Always generate graph even if no data
+                        requests_graph = self.generate_metric_graph(distribution_id, 'Requests', requests_data, 'Count')
+                        if requests_graph.getbuffer().nbytes > 0:
+                            doc.add_picture(requests_graph, width=Inches(6))
+                        else:
+                            doc.add_paragraph('Failed to generate Requests graph')
+                    
+                    doc.add_paragraph('')
+                    
+                    # Get and add BytesDownloaded metric graph
+                    doc.add_paragraph('Bytes Downloaded Metric (August 2025):', style='Heading 3')
+                    bytes_data = self.get_cloudfront_metrics(distribution_id, 'BytesDownloaded', start_time, end_time)
+                    if bytes_data or True:  # Always generate graph even if no data
+                        bytes_graph = self.generate_metric_graph(distribution_id, 'BytesDownloaded', bytes_data, 'Bytes')
+                        if bytes_graph.getbuffer().nbytes > 0:
+                            doc.add_picture(bytes_graph, width=Inches(6))
+                        else:
+                            doc.add_paragraph('Failed to generate BytesDownloaded graph')
+                    
+                    # Add page break after each distribution (except the last one)
+                    if dist != distributions[-1]:
+                        doc.add_page_break()
             
-            # Origin Access Identities section
+            # Origin Access Identities section on new page
+            if distributions:
+                doc.add_page_break()
+            
             doc.add_heading('Origin Access Identities', 1)
             if not oais:
                 doc.add_paragraph('No Origin Access Identities found.')
             else:
-                # Add table for OAIs
-                table = doc.add_table(rows=1, cols=3)
-                table.style = 'Table Grid'
-                
-                # Header row
-                headers = ['OAI ID', 'S3 Canonical User ID', 'Comment']
-                header_cells = table.rows[0].cells
-                for i, header in enumerate(headers):
-                    header_cells[i].text = header
-                
-                # Data rows
                 for oai in oais:
-                    row_cells = table.add_row().cells
-                    row_cells[0].text = self._safe_str(oai.get('Id'))
-                    row_cells[1].text = self._safe_str(oai.get('S3CanonicalUserId'))[:20] + '...'  # Truncate long ID
-                    row_cells[2].text = self._safe_str(oai.get('Comment'))
+                    doc.add_paragraph(f"OAI ID: {self._safe_str(oai.get('Id'))}")
+                    doc.add_paragraph(f"Comment: {self._safe_str(oai.get('Comment'))}")
+                    doc.add_paragraph(f"S3 Canonical User ID: {self._safe_str(oai.get('S3CanonicalUserId'))[:50]}...")
+                    doc.add_paragraph('')
             
             # Generate filename with current timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M")
@@ -417,7 +564,7 @@ class CloudFrontCrossAccountManager:
 
 
 def main():
-    """Main function to demonstrate CloudFront cross-account listing"""
+    """Main function to demonstrate CloudFront cross-account listing with metrics"""
     try:
         # Initialize the manager
         cf_manager = CloudFrontCrossAccountManager()
@@ -426,14 +573,18 @@ def main():
         print(f"\n=== Listing all CloudFront distributions in account {settings.target_account_id} ===")
         distributions = cf_manager.list_cloudfront_distributions()
         
+        # Display distributions in new format
         for dist in distributions:
-            print(f"\nDistribution: {dist['Id']}")
+            print(f"\n{dist['Id']}")
             print(f"  Domain Name: {dist['DomainName']}")
             print(f"  Status: {dist['Status']}")
             print(f"  Enabled: {dist['Enabled']}")
+            if dist.get('Aliases'):
+                print(f"  Aliases: {', '.join(dist['Aliases'])}")
             print(f"  Origins: {len(dist['Origins'])}")
-            print(f"  Comment: {dist['Comment'][:50]}...")
-            print(f"  Name: {dist['Tags'].get('Name', 'N/A')}")
+            for origin in dist['Origins']:
+                print(f"    - {origin.get('Id')}: {origin.get('DomainName')} ({origin.get('Type', 'Unknown')})")
+            print(f"  Metrics will be included in the Word report")
         
         print(f"\nTotal CloudFront distributions: {len(distributions)}")
         
@@ -442,15 +593,19 @@ def main():
         oais = cf_manager.list_cloudfront_origin_access_identities()
         
         for oai in oais:
-            print(f"\nOAI: {oai['Id']}")
+            print(f"\n{oai['Id']}")
             print(f"  Comment: {oai['Comment']}")
         
         print(f"\nTotal OAIs: {len(oais)}")
         
-        # Generate and upload report
-        print(f"\n=== Generating and uploading CloudFront Word report ===")
+        # Generate and upload report with metrics
+        print(f"\n=== Generating CloudFront Word report with CloudWatch metrics ===")
+        print(f"Collecting metrics for period: 2025-08-01 to 2025-08-31")
+        print(f"Metrics: Requests (Per-Distribution), BytesDownloaded (Per-Distribution)")
+        print(f"Period: 1 Hour, Statistic: Sum")
+        
         s3_key = cf_manager.generate_and_upload_cloudfront_report()
-        print(f"CloudFront report uploaded to: s3://{settings.s3_bucket_name}/{s3_key}")
+        print(f"\nCloudFront report with metrics uploaded to: s3://{settings.s3_bucket_name}/{s3_key}")
         
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")

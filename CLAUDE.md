@@ -4,53 +4,145 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a monitoring metrics collection service designed to retrieve metrics from AWS CloudWatch and Whatap monitoring services. The project name suggests it's part of an MSP (Managed Service Provider) infrastructure monitoring solution.
+This is a cross-account AWS resource monitoring service that collects infrastructure information from multiple AWS accounts and generates Word reports stored in S3. The service is containerized and deployed on AWS EC2 Graviton (ARM64) instances.
+
+## Current Implementation Status
+
+### ✅ Completed Features
+1. **EC2 Resource Collection** (`ec2_cross_account.py`)
+   - Lists EC2 instances from target account
+   - Generates Word report with instance details
+   - Includes ELB (ALB/NLB/Classic) information
+
+2. **RDS Resource Collection** (`rds_cross_account.py`)
+   - Lists RDS instances and clusters (Aurora)
+   - Generates separate Word report
+   - Includes backup and Multi-AZ information
+
+3. **CloudFront Resource Collection** (`cloudfront_cross_account.py`)
+   - Lists CloudFront distributions
+   - Lists Origin Access Identities (OAI)
+   - Generates separate Word report
+
+4. **S3 Report Storage**
+   - All reports uploaded to `s3://starbucks-bucket/metric-report/`
+   - File naming: `ServiceName_YYYYMMDD_HHMM.docx`
+
+### 🔧 Technical Stack
+- **Language**: Python 3.11
+- **Container**: Docker (ARM64/Graviton optimized)
+- **Deployment**: EC2 Graviton instances
+- **CI/CD**: GitHub Actions with OIDC
+- **Dependencies**: 
+  - boto3 (AWS SDK)
+  - python-docx (Word generation)
+  - pydantic-settings (Configuration)
 
 ## Development Commands
 
-Since this is a new project, the following commands will need to be established based on the technology stack chosen:
+### Local Development
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-### For Node.js/TypeScript projects:
-- Build: `npm run build` or `yarn build`
-- Test: `npm test` or `yarn test`
-- Lint: `npm run lint` or `yarn lint`
-- Run locally: `npm start` or `yarn start`
-- Run single test: `npm test -- <test-file-path>`
+# Run locally
+python ec2_cross_account.py
 
-### For Python projects:
-- Install dependencies: `pip install -r requirements.txt`
-- Run tests: `pytest`
-- Lint: `ruff check .` or `pylint src/`
-- Run locally: `python main.py` or `python -m src.main`
+# Build Docker image for ARM64
+docker build --platform linux/arm64 -t msp-ec2-monitor:latest .
 
-## Architecture Considerations
+# Run with docker-compose
+docker-compose up --build
+```
 
-When implementing this monitoring metrics collector, consider:
+### Deployment
+```bash
+# Deploy to EC2 (via GitHub Actions)
+git push origin main
 
-1. **Metrics Sources**
-   - AWS CloudWatch: Use AWS SDK for metrics retrieval
-   - Whatap: Integration with Whatap API endpoints
+# Manual deployment
+./deploy-graviton.sh
+```
 
-2. **Core Components to Implement**
-   - Metrics collectors for each service
-   - Configuration management for API credentials and endpoints
-   - Data transformation layer to normalize metrics
-   - Scheduling mechanism for periodic collection
-   - Output/storage layer (database, file, or streaming)
+## Configuration & Environment
 
-3. **Security Patterns**
-   - Store credentials in environment variables or AWS Secrets Manager
-   - Never commit API keys or tokens to the repository
-   - Implement proper error handling for API failures
+### Required Environment Variables (.env)
+```env
+SOURCE_ACCOUNT_ID=144149479695
+TARGET_ACCOUNT_ID=867099995276
+ASSUME_ROLE_NAME=Starbucks-Monitoring-Metrics
+SESSION_NAME=EC2ListingSession
+AWS_REGION=ap-northeast-2
+LOG_LEVEL=INFO
+```
 
-4. **Testing Strategy**
-   - Mock external API calls in unit tests
-   - Implement integration tests with test accounts when possible
-   - Test metric transformation logic thoroughly
+### IAM Setup
 
-## Key Implementation Notes
+#### Source Account (144149479695)
+- EC2 Instance Role: `Starbucks-Monitoring-Metrics`
+- Required permissions:
+  - `sts:AssumeRole` to target account role
+  - S3 write access to `starbucks-bucket/metric-report/*`
 
-- Use async/concurrent processing for fetching metrics from multiple sources
-- Implement retry logic with exponential backoff for API calls
-- Consider rate limiting to avoid hitting API quotas
-- Log all API interactions for debugging and audit purposes
+#### Target Account (867099995276)
+- Cross-account Role: `Starbucks-Monitoring-Metrics`
+- Trust relationship: Allow source account role
+- Required AWS Managed Policies:
+  - `AmazonEC2ReadOnlyAccess`
+  - `AmazonRDSReadOnlyAccess`
+  - `CloudFrontReadOnlyAccess`
+  - `CloudWatchReadOnlyAccess`
+
+### Important Issues & Solutions
+
+#### 1. ARM64/Graviton Compatibility
+- **Issue**: `exec format error` when running on Graviton
+- **Solution**: Build with `--platform linux/arm64` in Dockerfile
+
+#### 2. Pydantic Core Module Error
+- **Issue**: `ModuleNotFoundError: No module named 'pydantic_core._pydantic_core'`
+- **Solution**: Install python3-dev and rebuild in single-stage Dockerfile
+
+#### 3. NoneType in Word Generation
+- **Issue**: Word document generation fails with None values
+- **Solution**: Added `_safe_str()` method to handle None values
+
+#### 4. Cross-Account Access Denied
+- **Issue**: `AccessDenied` when calling AssumeRole
+- **Solution**: Ensure correct role names and trust relationships
+
+## Next Steps & Potential Enhancements
+
+1. **Add More AWS Services**
+   - Lambda functions
+   - S3 buckets
+   - VPC configurations
+   - Route53 hosted zones
+
+2. **Scheduling & Automation**
+   - Implement cron job or EventBridge for periodic execution
+   - Add SNS notifications for report generation
+
+3. **Report Enhancements**
+   - Add Excel export option
+   - Include cost analysis
+   - Add graphical charts
+
+4. **Monitoring & Alerting**
+   - CloudWatch metrics for application health
+   - Error alerting via SNS/Slack
+
+## Known Limitations
+
+1. External ID for AssumeRole is currently hardcoded
+2. Reports are generated sequentially (could be parallelized)
+3. No retry mechanism for failed API calls
+4. Maximum report size limited by Word document constraints
+
+## Security Notes
+
+- Never commit `.env` files with actual credentials
+- Use `.env.example` for templates
+- Rotate IAM credentials regularly
+- Enable CloudTrail for audit logging
+- Use External ID for additional security in cross-account access
