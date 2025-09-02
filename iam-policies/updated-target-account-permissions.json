@@ -40,6 +40,17 @@
                 "rds:ListTagsForResource"
             ],
             "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "cloudfront:ListDistributions",
+                "cloudfront:GetDistribution",
+                "cloudfront:ListTagsForResource",
+                "cloudfront:ListCloudFrontOriginAccessIdentities",
+                "cloudfront:GetCloudFrontOriginAccessIdentity"
+            ],
+            "Resource": "*"
         }
     ]
 }

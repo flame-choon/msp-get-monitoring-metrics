@@ -9,6 +9,7 @@ from docx.shared import Inches
 import tempfile
 import os
 from rds_cross_account import RDSCrossAccountManager
+from cloudfront_cross_account import CloudFrontCrossAccountManager
 
 # Configure logging
 logging.basicConfig(
@@ -587,15 +588,35 @@ def main():
         rds_s3_key = rds_manager.generate_and_upload_rds_report()
         print(f"RDS report uploaded to: s3://{settings.s3_bucket_name}/{rds_s3_key}")
         
-        # List RDS information
-        print(f"\n=== RDS Summary ===")
-        instances = rds_manager.list_rds_instances()
-        clusters = rds_manager.list_rds_clusters()
-        print(f"Total RDS Instances: {len(instances)}")
-        print(f"Total RDS Clusters: {len(clusters)}")
-        print(f"\n=== Load Balancers Summary ===")
+        # Generate and upload CloudFront report
+        print(f"\n=== Generating and uploading CloudFront Word report ===")
+        cf_manager = CloudFrontCrossAccountManager()
+        cf_s3_key = cf_manager.generate_and_upload_cloudfront_report()
+        print(f"CloudFront report uploaded to: s3://{settings.s3_bucket_name}/{cf_s3_key}")
+        
+        # Summary information
+        print(f"\n=== Summary ===")
+        rds_instances = rds_manager.list_rds_instances()
+        rds_clusters = rds_manager.list_rds_clusters()
+        cf_distributions = cf_manager.list_cloudfront_distributions()
         load_balancers = ec2_manager.list_load_balancers()
+        
+        print(f"Total EC2 Instances: {len(instances)}")
+        print(f"Total RDS Instances: {len(rds_instances)}")
+        print(f"Total RDS Clusters: {len(rds_clusters)}")
+        print(f"Total CloudFront Distributions: {len(cf_distributions)}")
         print(f"Total Load Balancers: {len(load_balancers)}")
+        
+        # Show CloudFront details (first 3 distributions)
+        print(f"\n=== CloudFront Details ===")
+        for dist in cf_distributions[:3]:
+            print(f"Distribution: {dist['Id']}")
+            print(f"  Domain: {dist['DomainName']}")
+            print(f"  Status: {dist['Status']}")
+            print(f"  Origins: {len(dist['Origins'])}")
+        
+        if len(cf_distributions) > 3:
+            print(f"... and {len(cf_distributions) - 3} more distributions (see Word report for full details)")
         
         # Show ELB details
         for lb in load_balancers[:5]:  # Show first 5 ELBs
