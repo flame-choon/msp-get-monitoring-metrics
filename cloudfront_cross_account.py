@@ -320,8 +320,8 @@ class CloudFrontCrossAccountManager:
                 
                 # Highlight max value point if available
                 if max_value is not None and max_timestamp is not None:
-                    ax.plot(max_timestamp, max_value, marker='*', markersize=12, color='red', 
-                           label=f'Max: {self._format_metric_value(max_value, metric_name)} at {max_timestamp.strftime("%m-%d %H:%M")}')
+                    # ax.plot(max_timestamp, max_value, marker='*', markersize=12, color='red', 
+                    #        label=f'Max: {self._format_metric_value(max_value, metric_name)} at {max_timestamp.strftime("%m-%d %H:%M")}')
                     
                     # Add annotation for max point
                     ax.annotate(f'Max: {self._format_metric_value(max_value, metric_name)}', 
