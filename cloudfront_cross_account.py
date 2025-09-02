@@ -221,7 +221,7 @@ class CloudFrontCrossAccountManager:
             logger.error(f"Failed to list CloudFront OAIs: {str(e)}")
             raise
     
-    def get_cloudfront_metrics(self, distribution_id: str, metric_name: str, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
+    def get_cloudfront_metrics(self, distribution_id: str, metric_name: str, start_time: datetime, end_time: datetime) -> Dict[str, Any]:
         """
         Get CloudFront distribution metrics from CloudWatch
         
@@ -232,7 +232,7 @@ class CloudFrontCrossAccountManager:
             end_time: End time for metrics
             
         Returns:
-            List of metric data points
+            Dict containing datapoints, max_value, and max_timestamp
         """
         try:
             # Assume role in target account
@@ -266,14 +266,32 @@ class CloudFrontCrossAccountManager:
             # Sort data points by timestamp
             datapoints = sorted(response['Datapoints'], key=lambda x: x['Timestamp'])
             
+            # Find max value and timestamp
+            max_value = None
+            max_timestamp = None
+            
+            if datapoints:
+                max_point = max(datapoints, key=lambda x: x['Sum'])
+                max_value = max_point['Sum']
+                max_timestamp = max_point['Timestamp']
+            
+            result = {
+                'datapoints': datapoints,
+                'max_value': max_value,
+                'max_timestamp': max_timestamp
+            }
+            
             logger.info(f"Retrieved {len(datapoints)} data points for {metric_name}")
-            return datapoints
+            if max_value is not None:
+                logger.info(f"Max value: {max_value} at {max_timestamp}")
+            
+            return result
             
         except Exception as e:
             logger.error(f"Failed to get CloudFront metrics: {str(e)}")
-            return []
+            return {'datapoints': [], 'max_value': None, 'max_timestamp': None}
     
-    def generate_metric_graph(self, distribution_id: str, metric_name: str, datapoints: List[Dict[str, Any]], unit: str = '') -> BytesIO:
+    def generate_metric_graph(self, distribution_id: str, metric_name: str, datapoints: List[Dict[str, Any]], max_value: float = None, max_timestamp: datetime = None, unit: str = '') -> BytesIO:
         """
         Generate a graph for CloudFront metrics
         
@@ -281,6 +299,8 @@ class CloudFrontCrossAccountManager:
             distribution_id: CloudFront distribution ID
             metric_name: Name of the metric
             datapoints: List of metric data points
+            max_value: Maximum value in the dataset
+            max_timestamp: Timestamp when maximum value occurred
             unit: Unit for the metric (e.g., 'Bytes', 'Count')
             
         Returns:
@@ -297,6 +317,19 @@ class CloudFrontCrossAccountManager:
                 
                 # Plot the data
                 ax.plot(timestamps, values, marker='o', linestyle='-', linewidth=2, markersize=4)
+                
+                # Highlight max value point if available
+                if max_value is not None and max_timestamp is not None:
+                    ax.plot(max_timestamp, max_value, marker='*', markersize=12, color='red', 
+                           label=f'Max: {self._format_metric_value(max_value, metric_name)} at {max_timestamp.strftime("%m-%d %H:%M")}')
+                    
+                    # Add annotation for max point
+                    ax.annotate(f'Max: {self._format_metric_value(max_value, metric_name)}', 
+                               xy=(max_timestamp, max_value), 
+                               xytext=(10, 10), 
+                               textcoords='offset points',
+                               bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.7),
+                               arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
                 
                 # Format the x-axis
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
@@ -321,6 +354,11 @@ class CloudFrontCrossAccountManager:
                 elif metric_name == 'Requests':
                     # Format as thousands
                     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.0f}K' if x >= 1000 else f'{x:.0f}'))
+                
+                # Add legend if max value is shown
+                if max_value is not None:
+                    ax.legend(loc='upper right', fontsize=8)
+                    
             else:
                 # No data available
                 ax.text(0.5, 0.5, 'No data available', 
@@ -347,6 +385,27 @@ class CloudFrontCrossAccountManager:
             logger.error(f"Failed to generate metric graph: {str(e)}")
             # Return empty buffer on error
             return BytesIO()
+    
+    def _format_metric_value(self, value: float, metric_name: str) -> str:
+        """
+        Format metric value for display
+        
+        Args:
+            value: The metric value
+            metric_name: Name of the metric
+            
+        Returns:
+            Formatted string representation
+        """
+        if metric_name == 'BytesDownloaded':
+            return f'{value/1e9:.2f} GB'
+        elif metric_name == 'Requests':
+            if value >= 1000:
+                return f'{value/1000:.0f}K'
+            else:
+                return f'{value:.0f}'
+        else:
+            return str(value)
     
     def _parse_tags(self, tags: List[Dict[str, str]]) -> Dict[str, str]:
         """
@@ -419,11 +478,12 @@ class CloudFrontCrossAccountManager:
                     
                     # Add basic distribution info
                     doc.add_paragraph(f"Domain Name: {dist.get('DomainName')}")
-                    doc.add_paragraph(f"Enabled: {self._safe_str(dist.get('Enabled'))}")
-                    
+
                     # Add Aliases if present
                     if dist.get('Aliases'):
                         doc.add_paragraph(f"Aliases: {', '.join(dist.get('Aliases'))}")
+                        
+                    doc.add_paragraph(f"Enabled: {self._safe_str(dist.get('Enabled'))}")  
                     
                     # # Add Origins info
                     # origins = dist.get('Origins', [])
@@ -437,8 +497,22 @@ class CloudFrontCrossAccountManager:
                     # Get and add Requests metric graph
                     doc.add_paragraph('Requests Metric :', style='Heading 3')
                     requests_data = self.get_cloudfront_metrics(distribution_id, 'Requests', start_time, end_time)
-                    if requests_data or True:  # Always generate graph even if no data
-                        requests_graph = self.generate_metric_graph(distribution_id, 'Requests', requests_data, 'Count')
+                    
+                    # Add max value info if available
+                    if requests_data['max_value'] is not None:
+                        max_value_str = self._format_metric_value(requests_data['max_value'], 'Requests')
+                        max_time_str = requests_data['max_timestamp'].strftime('%Y-%m-%d %H:%M')
+                        doc.add_paragraph(f"최고값: {max_value_str} ({max_time_str})")
+                    
+                    if requests_data['datapoints'] or True:  # Always generate graph even if no data
+                        requests_graph = self.generate_metric_graph(
+                            distribution_id, 
+                            'Requests', 
+                            requests_data['datapoints'], 
+                            requests_data['max_value'], 
+                            requests_data['max_timestamp'], 
+                            'Count'
+                        )
                         if requests_graph.getbuffer().nbytes > 0:
                             doc.add_picture(requests_graph, width=Inches(6))
                         else:
@@ -447,10 +521,24 @@ class CloudFrontCrossAccountManager:
                     doc.add_paragraph('')
                     
                     # Get and add BytesDownloaded metric graph
-                    doc.add_paragraph('Bytes Downloaded Metric (August 2025):', style='Heading 3')
+                    doc.add_paragraph('Bytes Downloaded Metric :', style='Heading 3')
                     bytes_data = self.get_cloudfront_metrics(distribution_id, 'BytesDownloaded', start_time, end_time)
-                    if bytes_data or True:  # Always generate graph even if no data
-                        bytes_graph = self.generate_metric_graph(distribution_id, 'BytesDownloaded', bytes_data, 'Bytes')
+                    
+                    # Add max value info if available
+                    if bytes_data['max_value'] is not None:
+                        max_value_str = self._format_metric_value(bytes_data['max_value'], 'BytesDownloaded')
+                        max_time_str = bytes_data['max_timestamp'].strftime('%Y-%m-%d %H:%M')
+                        doc.add_paragraph(f"최고값: {max_value_str} ({max_time_str})")
+                    
+                    if bytes_data['datapoints'] or True:  # Always generate graph even if no data
+                        bytes_graph = self.generate_metric_graph(
+                            distribution_id, 
+                            'BytesDownloaded', 
+                            bytes_data['datapoints'], 
+                            bytes_data['max_value'], 
+                            bytes_data['max_timestamp'], 
+                            'Bytes'
+                        )
                         if bytes_graph.getbuffer().nbytes > 0:
                             doc.add_picture(bytes_graph, width=Inches(6))
                         else:
