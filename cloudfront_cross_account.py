@@ -312,7 +312,7 @@ class CloudFrontCrossAccountManager:
                 if unit:
                     ylabel += f' ({unit})'
                 ax.set_ylabel(ylabel, fontsize=10)
-                ax.set_title(f'{metric_name} - Distribution: {distribution_id}', fontsize=12, fontweight='bold')
+                ax.set_title(f' ', fontsize=12, fontweight='bold')
                 
                 # Format y-axis values
                 if metric_name == 'BytesDownloaded':
@@ -328,7 +328,7 @@ class CloudFrontCrossAccountManager:
                        verticalalignment='center',
                        transform=ax.transAxes,
                        fontsize=14)
-                ax.set_title(f'{metric_name} - Distribution: {distribution_id} (No Data)', fontsize=12, fontweight='bold')
+                ax.set_title(f' ', fontsize=12, fontweight='bold')
             
             # Adjust layout
             plt.tight_layout()
@@ -419,24 +419,23 @@ class CloudFrontCrossAccountManager:
                     
                     # Add basic distribution info
                     doc.add_paragraph(f"Domain Name: {dist.get('DomainName')}")
-                    doc.add_paragraph(f"Status: {dist.get('Status')}")
                     doc.add_paragraph(f"Enabled: {self._safe_str(dist.get('Enabled'))}")
                     
                     # Add Aliases if present
                     if dist.get('Aliases'):
                         doc.add_paragraph(f"Aliases: {', '.join(dist.get('Aliases'))}")
                     
-                    # Add Origins info
-                    origins = dist.get('Origins', [])
-                    if origins:
-                        doc.add_paragraph(f"Origins Count: {len(origins)}")
-                        for origin in origins:
-                            doc.add_paragraph(f"  - {origin.get('Id')}: {origin.get('DomainName')} ({origin.get('Type', 'Unknown')})", style='List Bullet')
+                    # # Add Origins info
+                    # origins = dist.get('Origins', [])
+                    # if origins:
+                    #     doc.add_paragraph(f"Origins Count: {len(origins)}")
+                    #     for origin in origins:
+                    #         doc.add_paragraph(f"  - {origin.get('Id')}: {origin.get('DomainName')} ({origin.get('Type', 'Unknown')})", style='List Bullet')
                     
-                    doc.add_paragraph('')
+                    # doc.add_paragraph('')
                     
                     # Get and add Requests metric graph
-                    doc.add_paragraph('Requests Metric (August 2025):', style='Heading 3')
+                    doc.add_paragraph('Requests Metric :', style='Heading 3')
                     requests_data = self.get_cloudfront_metrics(distribution_id, 'Requests', start_time, end_time)
                     if requests_data or True:  # Always generate graph even if no data
                         requests_graph = self.generate_metric_graph(distribution_id, 'Requests', requests_data, 'Count')
